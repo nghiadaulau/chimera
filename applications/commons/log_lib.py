@@ -6,7 +6,7 @@ from django.conf import settings
 from rest_framework import request, status
 from rest_framework.response import Response
 
-from applications.commons.exception import APIBreakException
+from applications.commons.exception import APIBreakException, APIWarningException
 
 
 class LogMessage(object):
@@ -412,9 +412,9 @@ def trace_api(specific_logger="", serializer=None, service_name=None, check_cont
                         'field': "",
                         'message': 'An error occurred. Please try again later.' if not _response.message else _response.message
                     }})
-                    log_traceback(trac_back=sys.exc_info()[-1], _logger=_logger, e=e, log_type="warning")
+                    log_traceback(track_back=sys.exc_info()[-1], _logger=_logger, e=e, log_type="warning")
                 else:
-                    log_traceback(trac_back=sys.exc_info()[-1], _logger=_logger, e=e)
+                    log_traceback(track_back=sys.exc_info()[-1], _logger=_logger, e=e)
             if _response.errors:
                 _logger.warning("<-------END------->")
             else:
@@ -428,19 +428,108 @@ def trace_api(specific_logger="", serializer=None, service_name=None, check_cont
     return decorator
 
 
-def log_traceback(trac_back, e, _logger, log_type="info"):
+def log_traceback(track_back, e, _logger, log_type="info"):
+    """
+    This function to show log of system in log line
+    :param track_back:
+    :param e:
+    :param _logger:
+    :param log_type:
+    :return:
+    """
     _logger.log(log_type, "{} - {}".format(e.__class__.__name__, str(e)))
     for i in range(8):
         if not i:
             continue
-        if not trac_back:
+        if not track_back:
             break
         if log_type == "info":
             _logger.log(log_type,
-                        'Trace back exception at func {} - in line {}'.format(trac_back.tb_frame.f_code.co_name,
-                                                                              trac_back.tb_lineno))
+                        'Trace back exception at func {} - in line {}'.format(track_back.tb_frame.f_code.co_name,
+                                                                              track_back.tb_lineno))
         else:
             _logger.log(log_type,
-                        'Trace back exception at func {} - in line {}'.format(trac_back.tb_frame.f_code.co_name,
-                                                                              trac_back.tb_lineno))
-        trac_back = trac_back.tb_next
+                        'Trace back exception at func {} - in line {}'.format(track_back.tb_frame.f_code.co_name,
+                                                                              track_back.tb_lineno))
+        track_back = track_back.tb_next
+
+
+def trace_func(specific_logger="", service_name="", use_fn_as_service_name=False):
+    """
+    This function to trace func
+    :param specific_logger:
+    :param service_name:
+    :param use_fn_as_service_name:
+    :return:
+    """
+
+    def decorator(func):
+        """
+        :param func: api function using this decorator
+        :return: inner func
+        """
+        def inner(*args, **kwargs):
+            """
+            :param kwargs: key word arguments
+            :return: json payload to response to client
+            """
+            func_name = func.__name__
+            _parent_logger = kwargs.get("logger", "")
+            init_service_name = service_name
+            if isinstance(_parent_logger, LogMessage):
+                init_service_name = service_name if service_name else _parent_logger.service_name
+            if use_fn_as_service_name:
+                init_service_name = f"{init_service_name}_{func_name}"
+            if specific_logger == "":
+                _logger = LogMessage.init_log(func_name, logger=_parent_logger, service_name=init_service_name)
+            elif specific_logger == "mixin":
+                _logger = MixingLog(func_name, _parent_logger=_parent_logger, service_name=init_service_name)
+            else:
+                _logger = LogMessage.init_log(func_name, logger=specific_logger, service_name=init_service_name)
+            kwargs.update(logger=_logger)
+            return func(*args, **kwargs)
+
+        return inner
+
+    return decorator
+
+
+def auth_required():
+    """
+    This function to check auth required
+    :return:
+    """
+    def decorator(func):
+        """
+        :param func: api function using this decorator
+        :return: inner func
+        """
+        def inner(**kwargs):
+            """
+            :param kwargs: key word arguments
+            :return: json payload to response to client
+            """
+            requests = kwargs.get("request")
+            _logger = kwargs.get("logger")
+            _response = kwargs.get('_response', APIResponse())
+            if _logger:
+                _logger.func_name = str(func.__name__)
+            if not request:
+                raise APIWarningException("Not found request")
+            access_token = str(requests.headers.get('access-token')).split(" ")[-1]
+            if not access_token:
+                _response.message = "Access token not provided"
+                _response.code_status = 1401
+                raise APIWarningException(_response.message)
+            token = AuthenticationToken.auth(access_token)
+            if not token:
+                _response.message = "Unauthorized"
+                _response.code_status = 1401
+                raise APIWarningException(_response.message)
+            kwargs.update(token=token)
+            return func(**kwargs)
+
+        inner.__name__ = func.__name__
+        return inner
+
+    return decorator
