@@ -35,7 +35,7 @@ class LogMessage(object):
     def set_user_log(self, username):
         """
         This func to set user into logger.
-        :param username: this username will be show in each log line.
+        :param username: this username will be shown in each log line.
         :return:
         """
         self.user = username
@@ -180,7 +180,7 @@ class MixingLog(object):
     def set_user_log(self, username):
         """
         This func to set user into logger.
-        :param username: this username will be show in each log line.
+        :param username: this username will be shown in each log line.
         :return:
         """
         self.user = username
@@ -239,6 +239,7 @@ class MixingLog(object):
 
     def log(self, lv, message, func_name=""):
         """
+        :param lv: This is a level of log
         :param message: message to log
         :param func_name: function name where we wrote log line
         :return:
@@ -252,3 +253,68 @@ class MixingLog(object):
         :return:
         """
         self.default.debug(message, func_name)
+
+
+class APIResponse(object):
+    """
+    This class to custom format response api
+    """
+
+    def __init__(self):
+        self.status_code = 0
+        self.message = ""
+        self.errors = {}
+        self.data = {}
+        self.kwargs = {}
+        self.trace = ""
+
+    def check_message(self, message):
+        """
+        This function to check message with init
+        :param message: Message of APIResponse
+        :return:
+        """
+        self.message = self.message if self.message else message
+
+    def check_status_code(self, status_code):
+        """
+        This function to check http code.
+        :param status_code: status code of APIResponse
+        :return:
+        """
+        self.status_code = self.status_code if self.status_code else status_code
+
+    def create_errors(self, errors):
+        """
+        This function to create errors into APIResponse
+        :param errors: that is errors
+        :return:
+        """
+        if isinstance(errors, list):
+            self.errors.update(errors)
+        else:
+            self.errors.update(errors)
+
+    def get_status_code(self, code=200):
+        """
+        This function to get http status code
+        :param code: A status of http request
+        :return: http status code
+        """
+        return self.status_code if self.status_code else code
+
+    def make_format(self):
+        """
+        This function to format response of api for commons structure
+        :return: Format of APIResponse
+        """
+        if self.errors:
+            status_code = self.get_status_code(400)
+            message = self.message
+            result = False
+        else:
+            status_code = self.get_status_code(200)
+            message = self.message if self.message else 'Success'
+            result = True
+        return dict(result=result, message=str(message), status_code=status_code, request_id=str(self.trace),
+                    data=self.data, error=self.errors, **self.kwargs)
