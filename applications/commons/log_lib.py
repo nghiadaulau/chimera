@@ -1,8 +1,12 @@
 import datetime
+import sys
 import uuid
 import logging
-
 from django.conf import settings
+from rest_framework import request, status
+from rest_framework.response import Response
+
+from applications.commons.exception import APIBreakException
 
 
 class LogMessage(object):
@@ -318,3 +322,125 @@ class APIResponse(object):
             result = True
         return dict(result=result, message=str(message), status_code=status_code, request_id=str(self.trace),
                     data=self.data, error=self.errors, **self.kwargs)
+
+
+def trace_api(specific_logger="", serializer=None, service_name=None, check_content_type=None,
+              class_response=APIResponse):
+    """
+    This function to trace log of api
+    :param check_content_type: Check content type for trace api
+    :param serializer: Serializer for api
+    :param specific_logger: Logger specific for api
+    :param service_name: Service name for log
+    :param class_response: Response class to
+    :return:
+    """
+
+    def decorator(func):
+        """
+        :param func: api function using this decorator
+        :return: inner func
+        """
+
+        def inner(request, **kwargs):
+            """
+            :param request: request http
+            :param kwargs: key word arguments
+            :return: json payload to response to client
+            """
+            _response = class_response()
+            kwargs.update(_response=_response)
+            func_name = f"{func.__name__}"
+            if specific_logger == "":
+                _logger = LogMessage.init_log(func_name, service_name=service_name)
+            elif specific_logger == "mix":
+                _logger = MixingLog(func_name=func_name, service_name=service_name)
+            else:
+                _logger = LogMessage.init_log(func_name, service_name=service_name)
+            kwargs.update(request=request, data_ser=None, logger=_logger)
+            _response.trace = _logger.trace_id
+            _logger.debug("<-------START------->")
+            _logger.debug(f'Input request {request.data}')
+            _logger.debug(f'Input params {request.query_params}')
+            if check_content_type and 'x-www-form-urlencoded' not in request.content_type and 'form-data' not in request.content_type and 'application/json' not in request.content_type:
+                _response.check_message('Content-type has incorrect format')
+                _response.create_errors({
+                    "header": {
+                        "message": "Content-type has incorrect format"
+                    }
+                })
+                _response.check_status_code(406)
+                _logger.warning("<-------END------->")
+                return Response(_response.make_format(), status=status.HTTP_200_OK)
+            kwargs.update(request=request, data_ser=None, logger=_logger)
+            if serializer:
+                _logger.info(f'Input params {request.data}')
+                data_ser = serializer(data=request.data)
+                if not data_ser.is_valid():
+                    _response.check_message('Data input is invalid.')
+                    _response.check_status_code(400)
+                    ctx = []
+                    for key_error in data_ser.errors.keys():
+                        if isinstance(data_ser.errors[key_error], dict):
+                            for key_errors in data_ser.errors[key_error]:
+                                ctx.append({
+                                    'field': '{}.{}'.format(key_error, key_errors),
+                                    'message': data_ser.errors[key_error][key_errors][0]
+                                })
+                        else:
+                            ctx.append({
+                                'field': key_error,
+                                'message': data_ser.errors[key_error][0]
+                            })
+                    _response.create_errors({
+                        "serializer": {
+                            "errors": ctx
+                        }
+                    })
+
+                    _logger.info('Error: {}'.format(ctx))
+                    return Response(_response.make_format(), status=status.HTTP_200_OK)
+                kwargs.update(data_ser=data_ser.data)
+
+            try:
+                func(**kwargs)
+            except Exception as e:
+                if not isinstance(e, APIBreakException):
+                    _response.check_message('Ops! Something were wrong.')
+                    _response.check_status_code(1400)
+                    _response.create_errors({"unknown_error": {
+                        'field': "",
+                        'message': 'An error occurred. Please try again later.' if not _response.message else _response.message
+                    }})
+                    log_traceback(trac_back=sys.exc_info()[-1], _logger=_logger, e=e, log_type="warning")
+                else:
+                    log_traceback(trac_back=sys.exc_info()[-1], _logger=_logger, e=e)
+            if _response.errors:
+                _logger.warning("<-------END------->")
+            else:
+                _logger.debug("<-------END------->")
+            return Response(_response.make_format(), status=status.HTTP_200_OK)
+
+        inner.func_name = func.__name__
+        inner.__name__ = func.__name__
+        return inner
+
+    return decorator
+
+
+def log_traceback(trac_back, e, _logger, log_type="info"):
+    _logger.log(log_type, "{} - {}".format(e.__class__.__name__, str(e)))
+    for i in range(8):
+        if not i:
+            continue
+        if not trac_back:
+            break
+        if log_type == "info":
+            _logger.log(log_type,
+                        'Trace back exception at func {} - in line {}'.format(trac_back.tb_frame.f_code.co_name,
+                                                                              trac_back.tb_lineno))
+        else:
+            _logger.log(log_type,
+                        'Trace back exception at func {} - in line {}'.format(trac_back.tb_frame.f_code.co_name,
+                                                                              trac_back.tb_lineno))
+        trac_back = trac_back.tb_next
