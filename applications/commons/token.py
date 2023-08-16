@@ -1,9 +1,7 @@
 import logging
-from datetime import time
-
+import time
 import jwt
 from django.conf import settings
-
 from applications.commons.utils import datetime2timestamp
 
 _logger = logging.getLogger("storage")
