@@ -127,7 +127,7 @@ class LogMessage(object):
         :param func_name: function name where we wrote log line
         :return:
         """
-        if settings.LOG_DEBUG:
+        if settings.DEBUG_LOG:
             self.log("info", message, func_name)
 
     @classmethod

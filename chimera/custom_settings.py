@@ -1,13 +1,16 @@
 import json
+import logging
 import os
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_PATH = f"{BASE_DIR}/logs"
 CONFIG = {}
+_logger = logging.getLogger("setting")
 try:
     with open(f"{BASE_DIR}/config/config.json", "r") as f:
         CONFIG = json.load(f)
 except Exception as e:
+    _logger.error(e)
     print(f"Error to load config from {BASE_DIR}/config/config.json")
 
 MYSQL_CONFIG = CONFIG["mysql_db"]
@@ -127,4 +130,3 @@ LOGGING = {
     },
 
 }
-
