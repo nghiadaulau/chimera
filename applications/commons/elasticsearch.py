@@ -38,7 +38,6 @@ class SearchEngine(object):
             "result": False,
             "data": {}
         }
-        response = self.client
         response = requests.post(url=url, verify=False, json=body, timeout=timeout)
         try:
             logger.info(f'Put event meta to SearchEngine - body {body} with result {response.json()["result"]}')
